@@ -1,0 +1,61 @@
+
+CONCLUSIONES DEL ANALISIS DE SENTIMIENTO
+
+1. Hipotesis H6 (sentimiento negativo asociado a toxicidad) -- CONFIRMADA
+CON MATIZ.
+
+La correlacion point-biserial entre compound y toxic es r = -0.2917,
+lo que indica una asociacion negativa moderada (sentimiento mas negativo, mas
+toxicidad). Los comentarios con sentimiento negativo tienen prevalencia de
+toxicidad notablemente mayor que los neutros o positivos. Sin embargo, la
+asociacion es imperfecta. De los comentarios con sentimiento negativo, la
+mayoria son limpios (critica constructiva, frustracion legitima). Y de los
+comentarios toxicos, una proporcion sustancial tiene sentimiento neutro o
+positivo (amenazas encubiertas, sarcasmo hostil, lenguaje formal con
+intencion danina). Esto confirma que el sentimiento captura una dimension
+necesaria pero no suficiente para predecir toxicidad.
+
+2. Hipotesis H7 (mejora modesta al agregar sentimiento) -- CONFIRMADA.
+
+Agregar features de sentimiento al modelo baseline (texto simple + sentimiento
+vs solo texto simple) mejora el AUC-ROC de LogisticRegression entre +0.01 y
++0.06 segun la etiqueta. Las mejoras mayores se observan en toxic (+0.06),
+obscene (+0.05) e insult (+0.05), donde el lenguaje negativo es mas evidente.
+Las mejoras menores se observan en threat (+0.01) e identity_hate (+0.02),
+donde el lenguaje es menos enfaticamente negativo. Solo sentimiento (sin
+features de texto) obtiene AUC competitivo para toxic (0.72) pero inferior
+para las demas etiquetas, lo que confirma que sentimiento y features de
+enfasis capturan dimensiones parcialmente independientes. La mejora no
+cierra la brecha hacia el rendimiento competitivo (AUC > 0.95) porque
+VADER es un lexico de valencia, no un modelo de intencion hostil.
+
+3. Hipotesis H8 (threat e identity_hate con menor correlacion) -- CONFIRMADA.
+
+La correlacion entre compound y threat es r = -0.0741, y entre
+compound e identity_hate es r = -0.0993. Estas son las
+correlaciones mas bajas del grupo, coherentemente con lo que predice la
+hipotesis. Las amenazas formales ("you will be blocked") y las
+generalizaciones sobre grupos ("those people always...") contienen
+lenguaje que VADER clasifica como neutro o incluso positivo porque carece
+de lexico enfaticamente negativo. En contraste, obscene (r = -0.2508)
+e insult (r = -0.2452) tienen las correlaciones mas altas porque
+usan palabras explicitamente negativas que VADER detecta.
+
+4. Decision sobre features de sentimiento.
+
+Los features de sentimiento deben incluirse en el modelo final como
+features complementarios, no como reemplazo de la representacion textual.
+Su contribucion es incremental pero real, especialmente para toxic,
+obscene e insult. Para threat e identity_hate, el aporte es minimo porque
+la naturaleza del lenguaje en esas categorias no se alinea con el lexico
+de valencia de VADER. Un modelo con embeddings contextuales (BERT o
+similar) capturara la intencion hostil independientemente del lexico
+superficial, haciendo que los features de sentimiento sean redundantes.
+
+5. Limitaciones de VADER.
+
+VADER es un modelo basado en lexico y reglas. No captura ironia, sarcasmo,
+contexto conversacional ni dependencias sintacticas. Los 3075 comentarios
+toxicos con sentimiento positivo (compound > 0.05) ilustran este limite.
+Un modelo contextual (como transformers) seria superior para este problema
+especifico, pero VADER sirve como baseline interpretable y rapido.

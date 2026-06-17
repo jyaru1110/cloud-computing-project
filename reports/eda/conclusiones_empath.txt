@@ -1,0 +1,41 @@
+CONCLUSIONES DEL ANALISIS EMPATH
+
+1. Hipotesis H9 (EMPATH supera a VADER en correlacion con etiquetas) -- PARCIALMENTE CONFIRMADA.
+
+El analisis revela que el ranking por correlacion point-biserial depende de que feature se compara. Si se compara el mejor feature individual de cada conjunto, VADER sent_neg tiene correlaciones mas altas que cualquier EMPATH individual para toxic (r=0.47 vs r=0.28), obscene (r=0.44 vs r=0.34) e insult (r=0.42 vs r=0.28). Esto se debe a que sent_neg agrega toda la valencia negativa del comentario, mientras que cada categoria EMPATH es mas especifica y por lo tanto mas dispersa.
+
+Sin embargo, EMPATH supera a VADER en threat (kill r=0.18 vs sent_neg r=0.12) y la diferencia es consistente con la hipotesis original. Las amenazas contienen lexico tematico (kill, weapon, death) que VADER no pondera fuertemente porque las palabras individuales no siempre son negativas en aislamiento.
+
+Mas importante que la correlacion individual es el rendimiento del modelo. La combinacion texto+EMPATH alcanza AUC de 0.77-0.89 segun la etiqueta, superando al baseline de solo texto (0.63-0.73) por +0.09 a +0.26 puntos. La combinacion texto+VADER+EMPATH supera sistematicamente a texto+VADER en todas las etiquetas excepto threat, donde ambas combinaciones convergen en AUC ~0.88.
+
+2. Hipotesis H10 (EMPATH supera a VADER como conjunto de features) -- REFUTADA EN FORMA INDIVIDUAL, CONFIRMADA COMO COMPLEMENTO.
+
+VADER como conjunto de features supera a EMPATH como conjunto de features en AUC para 5 de 6 etiquetas. sent_neg es un feature agregado potente que captura toda la valencia negativa, mientras que las categorias EMPATH son mas granulares y dispersas. Sin embargo, la combinacion texto+VADER+EMPATH sistematicamente supera a texto+VADER, lo que confirma que EMPATH aporta dimensiones que VADER no captura. Los incrementos de la combinacion completa vs texto+VADER son +0.01 a +0.05 en AUC.
+
+Los deltas AUC vs solo texto son:
+  texto+VADER: toxic=+0.19, severe_toxic=+0.29, obscene=+0.21, threat=+0.16, insult=+0.22, identity_hate=+0.15
+  texto+EMPATH: toxic=+0.13, severe_toxic=+0.26, obscene=+0.17, threat=+0.09, insult=+0.16, identity_hate=+0.15
+  texto+VADER+EMPATH: toxic=+0.20, severe_toxic=+0.31, obscene=+0.23, threat=+0.16, insult=+0.23, identity_hate=+0.17
+
+La combinacion completa alcanza AUC > 0.84 en 4 de 6 etiquetas y AUC > 0.93 en severe_toxic.
+
+3. Hipotesis H11 (categorias EMPATH especificas por etiqueta) -- PARCIALMENTE CONFIRMADA.
+
+Las categorias mas discriminativas por etiqueta confirman la estructura semantica esperada en 4 de 6 casos:
+  - swearing_terms domina en toxic, obscene e insult (coherente con lenguaje obsceno/insultante).
+  - kill domina en threat (coherente con amenazas).
+  - negative_emotion es la segunda categoria mas fuerte en toxic, obscene e insult.
+
+Sin embargo, identity_hate no tiene hate como su categoria mas fuerte (es swearing_terms con r=0.11). Esto sugiere que en el dataset de Wikipedia, el odio identitario se expresa mas con lenguaje vulgar que con lexico explicito de odio, lo cual refleja la naturaleza encubierta de este tipo de toxicidad en foros de discusion.
+
+4. Independencia entre conjuntos de features.
+
+Las correlaciones Spearman entre features EMPATH y VADER son debiles (r < 0.23 en todos los pares). EMPATH hate vs VADER sent_neg tiene r = 0.23, lo que indica que capturan dimensiones parcialmente independientes. La correlacion entre EMPATH aggression y caps_ratio es r = -0.07, practicamente nula. Esto confirma que los tres conjuntos de features (texto, VADER, EMPATH) son complementarios y que su combinacion agrega informacion no redundante.
+
+5. Decision sobre features para el modelo productivo.
+
+Los tres conjuntos de features deben incluirse en el modelo baseline: texto simple (enfasis), VADER (valencia) y EMPATH (tema). La combinacion completa alcanza AUC de 0.84-0.94, un salto sustancial respecto al baseline de solo texto (0.63-0.73). Sin embargo, estos siguen siendo modelos lineales con features lexicos. Un modelo con representacion contextual (BERT o similar) probablemente absorbera la informacion de VADER y EMPATH de forma implicita, pero como baseline interpretable y rapido la combinacion es competitiva.
+
+6. Limitaciones.
+
+EMPATH usa un lexico predefinido y no captura contexto ni intencion. La seleccion de las 10 categorias mas correlacionadas con any_toxic introduce sesgo de seleccion que podria sobreestimar el rendimiento. Los resultados deberian validarse con un hold-out independiente. Ademas, el modelado usa una submuestra de 10,000 con solo 2 semillas y 3-fold CV, lo que produce intervalos de confianza mas amplios que el analisis anterior.

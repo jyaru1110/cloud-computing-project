@@ -1,0 +1,44 @@
+# Cloud Build para ejecutar el analisis estadistico del dataset Jigsaw
+# en Google Cloud Platform. El analisis corre dentro de un container
+# Docker que tiene todas las dependencias y lee/escribe de GCS.
+
+steps:
+  # Paso 1: Construir la imagen Docker con dependencias de analisis
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - "build"
+      - "-t"
+      - "us-central1-docker.pkg.dev/$PROJECT_ID/mlops-containers/analysis:$SHORT_SHA"
+      - "-t"
+      - "us-central1-docker.pkg.dev/$PROJECT_ID/mlops-containers/analysis:latest"
+      - "."
+    id: "build-analysis-image"
+
+  # Paso 2: Ejecutar el analisis estadistico completo
+  # Lee de GCS, genera graficas y conclusiones, sube resultados a GCS
+  - name: "us-central1-docker.pkg.dev/$PROJECT_ID/mlops-containers/analysis:latest"
+    args:
+      - "python"
+      - "src/analysis_toxic_comments.py"
+    env:
+      - "GCS_BUCKET=mlops-toxic-comments-ml"
+    id: "run-analysis"
+    waitFor: ["build-analysis-image"]
+
+  # Paso 3: Push de la imagen al Artifact Registry
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - "push"
+      - "--all-tags"
+      - "us-central1-docker.pkg.dev/$PROJECT_ID/mlops-containers/analysis"
+    id: "push-analysis-image"
+    waitFor: ["run-analysis"]
+
+images:
+  - "us-central1-docker.pkg.dev/$PROJECT_ID/mlops-containers/analysis:$SHORT_SHA"
+  - "us-central1-docker.pkg.dev/$PROJECT_ID/mlops-containers/analysis:latest"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: "1200s"

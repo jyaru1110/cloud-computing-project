@@ -1,0 +1,16 @@
+[project]
+name = "cloud-computing-project"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "empath>=0.89",
+    "joblib>=1.5.3",
+    "lightgbm>=4.6.0",
+    "nltk>=3.9.4",
+    "pandarallel>=1.6.5",
+    "pysentimiento>=0.7.3",
+    "scikit-learn>=1.9.0",
+    "seaborn>=0.13.2",
+    "statsmodels>=0.14.6",
+    "wordcloud>=1.9.6",
+]

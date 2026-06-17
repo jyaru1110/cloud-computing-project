@@ -1,0 +1,1 @@
+/home/ae/.ai/agent/extensions/py-notebook-rules.ts

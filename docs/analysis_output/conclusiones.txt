@@ -1,0 +1,101 @@
+
+CONCLUSIONES DEL ANALISIS JIGSAW TOXIC COMMENT CLASSIFICATION
+
+1. Hipotesis H1 (no independencia de etiquetas) -- CONFIRMADA.
+
+Los resultados de Chi-cuadrada muestran que ningun par de etiquetas es
+independiente (p < 0.001 en todos los casos). Los coeficientes Phi y
+Cramer V mas altos se observan entre obscene-insult (Phi=1.06) y
+toxic-obscene (Phi=0.92). La etiqueta severe_toxic es un subconjunto
+casi perfecto de toxic (100% de co-ocurrencia). La etiqueta threat
+es la mas independiente del resto (Phi promedio=0.04). Esta estructura
+de dependencia invalida el supuesto de independencia requerido por
+classifiers binarios separados sin correccion y favorece modelos
+multietiqueta que capturan la covarianza entre etiquetas.
+
+2. Hipotesis H2 (diferencias de distribucion textual) -- PARCIALMENTE
+CONFIRMADA.
+
+Los comentarios toxicos tienen longitud media menor (295 vs 405
+caracteres para toxic vs no toxico) y proporcion de mayusculas mayor
+(0.115 vs 0.045). El rank-biserial correlation muestra que caps_ratio
+(r_rb=0.46) y exclaim_ratio (r_rb=0.31) son los features con mayor
+tamanho de efecto. Sin embargo, text_len tiene un efecto debil
+(r_rb=-0.08) y question_ratio no discrimina (r_rb~0). Las diferencias
+son estadisticamente significativas (p < 0.001) pero con tamanos de
+efecto pequenos a moderados, lo que sugiere que los features textuales
+simples capturan solo una fraccion de la senal.
+
+3. Hipotesis H3 (desbalance y metricas) -- CONFIRMADA.
+
+La clase mayoritaria (comentarios limpios) representa 89.83% del
+dataset. Para threat, la clase positiva es solo 0.30%. La exactitud
+(accuracy) trivialmente alcanza ~90% prediciendo siempre "no toxico".
+Los modelos evaluados usan F1-score y AUC-ROC como metricas primarias
+porque ambas son robustas al desbalance. F1 penaliza falsos negativos
+y positivos por igual en el umbral optimo. AUC-ROC evalua el ranking
+continuo independientemente del umbral. Ninguna de las dos metricas
+es suficiente sola: F1 depende del umbral y AUC no refleja el costo
+asimetrico de errores en moderacion real.
+
+4. Hipotesis H4 (poder discriminativo limitado de features simples)
+-- CONFIRMADA.
+
+Los baselines con features textuales simples alcanzan AUC-ROC entre
+0.65 y 0.79 segun la etiqueta. LogisticRegression y RandomForest
+tienen desempeno comparable, con LR ligeramente superior en AUC para
+la mayoria de etiquetas. Esto indica que la senal lineal capturada
+por estos features ya agota gran parte de su informacion. El salto
+a modelos que usen TF-IDF, n-gramas o embeddings deberia llevar el
+AUC por encima de 0.95 como reportan soluciones lider en la
+competencia original. Los features simples sirven como baseline
+y como features complementarios pero no como representacion principal.
+
+5. Hipotesis H5 (threat e identity_hate dificiles) -- CONFIRMADA.
+
+Threat (0.30% prevalencia) e identity_hate (0.88%) obtienen los
+F1 mas bajos: 0.16-0.18 para threat y 0.23-0.28 para identity_hate.
+Ambas etiquetas tienen la menor co-ocurrencia con las demas y la
+menor senal en features simples. El AUC de threat (0.73) es el mas
+bajo del grupo. La escasez extrema de ejemplos positivos (478 para
+threat) hace que la varianza del estimador sea alta y que el modelo
+tenga dificil separar la senal real del ruido. Soluciones como
+oversampling dirigido, data augmentation textual o transfer learning
+son necesarias para estas etiquetas.
+
+6. Decision de modelo.
+
+Para un baseline inicial con features simples, LogisticRegression
+con class_weight="balanced" es preferible a RandomForest porque
+ofrece AUC comparable, entrenamiento mas rapido y interpretabilidad
+directa de los coeficientes. Sin embargo, el modelo final debe
+incorporar representacion textual (TF-IDF + n-gramas o embeddings
+preentrenados) y una arquitectura multietiqueta (por ejemplo,
+un modelo con sigmoid en la capa de salida y perdida binaria
+por etiqueta). La eleccion entre enfoques basados en boosting
+(LightGBM con features TF-IDF) o redes neuronales (CNN/LSTM sobre
+embeddings) depende del presupuesto computacional disponible.
+
+7. Supuestos estadisticos verificados.
+
+Las pruebas de normalidad (Shapiro y D'Agostino) rechazan la
+normalidad para todos los features de texto (p < 0.001), lo cual
+es esperado en variables con sesgo y colas pesadas. Por eso las
+comparaciones de grupos usan Mann-Whitney U (no parametrica) en
+lugar de t-test. Las correlaciones Pearson entre etiquetas son
+validas a pesar de la no normalidad porque las variables son
+binarias y el tamano de muestra (N=159,571) garantiza la
+convergencia asintotica. Las pruebas de Chi-cuadrada son validas
+porque todas las celdas de las tablas de contingencia tienen
+frecuencias esperadas > 5.
+
+8. Limitaciones del analisis.
+
+Este analisis solo usa features de texto simples (longitud,
+mayusculas, signos de puntuacion). No incorpora contenido
+semantico ni representaciones vectoriales del texto. Las
+conclusiones sobre poder predictivo son un limite inferior del
+rendimiento alcanzable. Ademas, el dataset proviene de paginas
+de discusion de Wikipedia en ingles, por lo que los patrones
+detectados no generalizan necesariamente a otras plataformas,
+idiomas o contextos culturales.
