@@ -17,25 +17,29 @@ RUN pip install --no-cache-dir \
     joblib==1.4.2 \
     requests==2.32.3 \
     pydantic==2.9.2 \
-    google-cloud-storage==2.14.0 \
-    google-cloud-secret-manager==2.20.0
+    pandas>=2.2.0 \
+    google-cloud-storage>=2.14.0 \
+    google-cloud-secret-manager>=2.20.0
 
-# Copy source code
+# Copy source code (generic -- no model baked in)
 COPY src/ /app/src/
 
-# Copy model artifacts (for serving mode)
-COPY reports/training/model_final/ /app/model/
+# Create empty model dir (will be populated from GCS at startup)
+RUN mkdir -p /app/model
 
-# Copy serving entrypoint
+# Copy serving entrypoint (supports --mode train and --mode serve)
 COPY src/serving/train.py /app/entrypoint.py
 
 # Environment
 ENV MODEL_DIR=/app/model
 ENV PORT=8080
 ENV PYTHONPATH=/app
+# GCS_MODEL_URI must be set at deploy time, e.g.:
+#   gs://mlops-toxic-comments-ml/model
+ENV GCS_MODEL_URI=""
+ENV PROJECT_ID=""
 
 EXPOSE 8080
 
-# Default: serve mode. Override with --mode train for training jobs.
 ENTRYPOINT ["python", "/app/entrypoint.py"]
 CMD ["--mode", "serve"]

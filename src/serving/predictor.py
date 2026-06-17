@@ -5,7 +5,9 @@ Serving endpoint that accepts raw text, computes TF-IDF char_wb features
 locally and nomic-embed embeddings via Synthetic API, concatenates them,
 and runs 6 calibrated LinearSVC models to produce per-label probabilities.
 
-Deployed on Cloud Run.
+Model loading: downloads artifacts from GCS at startup if not present locally.
+This decouples the Docker image (generic) from the model (versioned in GCS).
+The pipeline writes to GCS, Cloud Run reads from GCS. GCS is the contract.
 """
 
 from __future__ import annotations
@@ -32,6 +34,8 @@ EMBEDDING_DIM = 768
 EMBEDDING_TASK_TYPE = "classification"
 
 MODEL_DIR = os.environ.get("MODEL_DIR", "/app/model")
+GCS_MODEL_URI = os.environ.get("GCS_MODEL_URI", "")  # e.g. gs://bucket/model
+PROJECT_ID = os.environ.get("PROJECT_ID", os.environ.get("GCP_PROJECT", ""))
 
 # F2-optimal thresholds from training
 THRESHOLDS = {
@@ -55,6 +59,7 @@ def clean_text(text: str) -> str:
     text = re.sub(r"[^a-zA-Z\d]", " ", text)
     text = re.sub(r" +", " ", text)
     return text.strip()
+
 
 # ============================================================
 # Embedding client
@@ -98,39 +103,84 @@ def get_embeddings(texts: list[str], api_key: str) -> np.ndarray:
 
 
 # ============================================================
-# Model loading
+# Model loading: GCS-first, local fallback
 # ============================================================
 
 class ToxicityPredictor:
-    def __init__(self, model_dir: str):
+    def __init__(self, model_dir: str, gcs_model_uri: str = "", project_id: str = ""):
         self.model_dir = model_dir
+        self.gcs_model_uri = gcs_model_uri
+        self.project_id = project_id
         self.tfidf = None
         self.models = {}
         self.thresholds = THRESHOLDS
+        self.model_source = "unknown"
+
+        # Step 1: If no local model, download from GCS
+        if not os.path.exists(os.path.join(model_dir, "tfidf_charwb_2_5.joblib")):
+            if gcs_model_uri:
+                self._download_from_gcs(gcs_model_uri, project_id)
+                self.model_source = f"gcs:{gcs_model_uri}"
+            else:
+                raise RuntimeError(
+                    f"No model found in {model_dir} and no GCS_MODEL_URI set. "
+                    "Either bake model into image or set GCS_MODEL_URI env var."
+                )
+        else:
+            self.model_source = f"local:{model_dir}"
+
+        # Step 2: Load models into memory
         self._load_models()
+
+    def _download_from_gcs(self, gcs_uri: str, project_id: str):
+        """Download model artifacts from GCS to local model_dir."""
+        from google.cloud import storage
+
+        print(f"Downloading model from GCS: {gcs_uri}")
+        parts = gcs_uri.replace("gs://", "").split("/", 1)
+        bucket_name = parts[0]
+        prefix = parts[1] if len(parts) > 1 else ""
+
+        client = storage.Client(project=project_id) if project_id else storage.Client()
+        bucket = client.bucket(bucket_name)
+
+        os.makedirs(self.model_dir, exist_ok=True)
+        count = 0
+        for blob in bucket.list_blobs(prefix=prefix):
+            if blob.name.endswith((".joblib", ".json")):
+                filename = os.path.basename(blob.name)
+                local_path = os.path.join(self.model_dir, filename)
+                blob.download_to_filename(local_path)
+                print(f"  Downloaded: {filename} ({blob.size / 1024:.0f} KB)")
+                count += 1
+
+        if count == 0:
+            raise RuntimeError(f"No .joblib or .json files found at gs://{bucket_name}/{prefix}")
+        print(f"Downloaded {count} model files from GCS")
 
     def _load_models(self):
         t0 = time.time()
-
-        # Load TF-IDF vectorizer
         tfidf_path = os.path.join(self.model_dir, "tfidf_charwb_2_5.joblib")
         self.tfidf = joblib.load(tfidf_path)
 
-        # Load per-label LinearSVC models
         for label in LABEL_COLS:
             model_path = os.path.join(self.model_dir, f"svc_{label}.joblib")
             self.models[label] = joblib.load(model_path)
 
+        # Load thresholds from metadata if available
+        meta_path = os.path.join(self.model_dir, "metadata.json")
+        if os.path.exists(meta_path):
+            with open(meta_path) as f:
+                meta = json.load(f)
+            if "f2_optimal_thresholds" in meta:
+                self.thresholds = meta["f2_optimal_thresholds"]
+
         elapsed = time.time() - t0
         n_features = self.tfidf.get_feature_names_out().shape[0] if hasattr(self.tfidf, 'get_feature_names_out') else 0
-        print(f"Loaded {len(self.models)} models + TF-IDF ({n_features} features) in {elapsed:.1f}s")
+        print(f"Loaded {len(self.models)} models + TF-IDF ({n_features} features) from {self.model_source} in {elapsed:.1f}s")
 
     def predict(self, texts: list[str], api_key: str) -> list[dict]:
-        """
-        Predict toxicity probabilities for a batch of texts.
-
-        Returns list of dicts with keys: probabilities, labels, threshold
-        """
+        """Predict toxicity probabilities for a batch of texts."""
         t_total = time.time()
 
         # Step 1: Clean text for TF-IDF
@@ -157,9 +207,9 @@ class ToxicityPredictor:
             probs = {}
             labels = {}
             for label in LABEL_COLS:
-                prob = self.models[label].predict_proba(row)[0, 1]
-                probs[label] = round(float(prob), 4)
-                labels[label] = prob >= self.thresholds[label]
+                prob = float(self.models[label].predict_proba(row)[0, 1])
+                probs[label] = round(prob, 4)
+                labels[label] = prob >= self.thresholds.get(label, 0.5)
             results.append({
                 "text": text[:200] + "..." if len(text) > 200 else text,
                 "probabilities": probs,
@@ -170,7 +220,6 @@ class ToxicityPredictor:
 
         total_time = time.time() - t_total
         print(f"Predicted {len(texts)} texts: tfidf={tfidf_time:.2f}s, emb={emb_time:.2f}s, predict={predict_time:.2f}s, total={total_time:.2f}s")
-
         return results
 
 
@@ -180,8 +229,8 @@ class ToxicityPredictor:
 
 app = FastAPI(
     title="Toxic Comment Classification API",
-    description="Multi-label toxicity classifier using LinearSVC + char_wb TF-IDF + nomic-embed",
-    version="1.0.0",
+    description="Multi-label toxicity classifier: LinearSVC + char_wb TF-IDF + nomic-embed",
+    version="2.0.0",
 )
 
 predictor: Optional[ToxicityPredictor] = None
@@ -190,11 +239,15 @@ predictor: Optional[ToxicityPredictor] = None
 @app.on_event("startup")
 def startup():
     global predictor
-    predictor = ToxicityPredictor(MODEL_DIR)
+    predictor = ToxicityPredictor(
+        model_dir=MODEL_DIR,
+        gcs_model_uri=GCS_MODEL_URI,
+        project_id=PROJECT_ID,
+    )
 
 
 class PredictRequest(BaseModel):
-    texts: list[str] = Field(..., min_length=1, max_length=128, description="List of comments to classify")
+    texts: list[str] = Field(..., min_length=1, max_length=128, description="Comments to classify")
     api_key: Optional[str] = Field(None, description="Synthetic API key (or set SYNTHETIC_API_KEY env var)")
 
 
@@ -217,6 +270,7 @@ def health():
         "status": "healthy",
         "models_loaded": predictor is not None,
         "n_labels": len(LABEL_COLS) if predictor else 0,
+        "model_source": predictor.model_source if predictor else "not loaded",
     }
 
 
@@ -244,6 +298,7 @@ def predict(request: PredictRequest):
             "n_labels": len(LABEL_COLS),
             "labels": LABEL_COLS,
             "auc_macro": 0.9903,
+            "model_source": predictor.model_source,
         },
         latency_ms=latency_ms,
     )
@@ -260,7 +315,8 @@ def model_info():
         "tfidf_features": predictor.tfidf.get_feature_names_out().shape[0] if hasattr(predictor.tfidf, 'get_feature_names_out') else "N/A",
         "embedding_features": EMBEDDING_DIM,
         "labels": LABEL_COLS,
-        "thresholds": THRESHOLDS,
+        "thresholds": predictor.thresholds,
+        "model_source": predictor.model_source,
         "metrics": {
             "auc_macro": 0.9903,
             "f1_macro": 0.6388,
