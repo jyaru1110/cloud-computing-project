@@ -387,7 +387,72 @@ VADER sent_neg tiene correlaciones individuales mas altas que cualquier categori
 Los deltas de AUC respecto al baseline de solo texto son notablemente grandes. La combinacion texto+VADER+EMPATH alcanza AUC de 0.84 a 0.94 segun la etiqueta, un salto de +0.17 a +0.31 sobre el baseline de solo texto. EMPATH como conjunto es inferior a VADER como conjunto en 5 de 6 etiquetas, pero la combinacion de ambos supera sistematicamente a cualquiera por separado, confirmando que capturan dimensiones complementarias (tema, valencia, enfasis).
 
 // ============================================================
-// 13. CONCLUSIONES ACTUALIZADAS
+// 13. MODELO PRODUCTIVO: CLASSIFIER CHAIN LIGHTGBM
+// ============================================================
+= Modelo productivo: Classifier Chain LightGBM
+
+El modelo productivo reemplaza el placeholder LogisticRegression por una cadena de clasificadores LightGBM que respeta la jerarquia de etiquetas documentada en el EDA. El orden de la cadena es *toxic* → *obscene* → *insult* → *severe_toxic* → *identity_hate* → *threat*, donde cada modelo recibe como features adicionales las probabilidades predichas por los modelos anteriores.
+
+== Features
+
+El pipeline de features incluye:
+
++ *TF-IDF* (5,000 features, n-gramas 1-2, sublinear TF, min_df=3, max_df=0.95)
++ *Texto simple* (6 features: longitud, conteo de palabras, ratio de mayusculas, ratio de exclamacion, ratio de pregunta, diversidad lexica)
++ *VADER* (4 features: neg, neu, pos, compound)
++ *EMPATH* (15 categorias seleccionadas por correlacion con any_toxic)
+
+Total: 5,010 features de entrada por comentario.
+
+== Hiperparametros
+
+Cada etiqueta tiene configuracion especifica. Las etiquetas raras (*threat*, *identity_hate*, *severe_toxic*) usan mas arboles (800-1000), mayor profundidad (9-11) y mas hojas (127-255). Las etiquetas prevalentes (*toxic*, *obscene*, *insult*) usan 500 arboles con profundidad 7 y 63 hojas. Todas usan `scale_pos_weight` inverso a la frecuencia de la clase positiva, compensando el desbalance extremo (e.g., *threat* con peso 335:1).
+
+== Resultados
+
+#figure(
+  image("imgs/37_roc_curves.png", width: 100%),
+  caption: [Curvas ROC por etiqueta. AUC-ROC macro = 0.9630.],
+) <roc_lgbm>
+
+#figure(
+  image("imgs/34_auc_lr_vs_lgbm.png", width: 100%),
+  caption: [AUC-ROC: LogisticRegression (L1, C=0.1) vs LightGBM Classifier Chain con IC 95% bootstrap.],
+) <auc_comp>
+
+Los AUC-ROC del modelo LightGBM son: toxic 0.9598, severe_toxic 0.9819, obscene 0.9799, threat 0.9549, insult 0.9710, identity_hate 0.9308. Macro-AUC = 0.9630. Los intervalos de confianza al 95% (bootstrap, 200 repeticiones) no se solapan con 0.5 en ninguna etiqueta.
+
+La comparacion con LogisticRegression muestra que LR alcanza AUC marginalmente superiores en 4 de 6 etiquetas, pero las diferencias estan dentro de los IC 95% de LightGBM. LR con penalty L1 y C=0.1 realiza seleccion implicita de features en el espacio TF-IDF, lo que le da ventaja en representacion sparse. Sin embargo, LightGBM ofrece feature importance interpretable, umbral F2-optimo por clase y la estructura de cadena que modela dependencias entre etiquetas.
+
+== Feature importance
+
+#figure(
+  image("imgs/35_feature_importance.png", width: 100%),
+  caption: [Top 10 features por etiqueta. Las features de la cadena (chain underscore) aparecen como las mas importantes en etiquetas posteriores.],
+) <feat_imp>
+
+Las features de la cadena dominan la importancia para etiquetas posteriores. Para *obscene*, chain_toxic (importancia 1433) supera a cualquier feature de entrada. Para *insult*, chain_obscene y chain_toxic juntas aportan mas que todos los TF-IDF. Para *threat*, caps_ratio es el feature de entrada mas importante, seguido de chain_identity_hate y chain_severe_toxic. Esto confirma que la estructura de dependencia entre etiquetas es la senal mas fuerte para las sub-etiquetas.
+
+El lexico obsceno ("fuck", "gay") aparece entre los top TF-IDF features para obscene e identity_hate respectivamente, validando que el TF-IDF captura senal lexica especifica.
+
+== Calibracion y umbrales
+
+#figure(
+  image("imgs/36_calibration.png", width: 100%),
+  caption: [Calibracion de probabilidades por etiqueta. ECE = Expected Calibration Error.],
+) <calibration>
+
+*toxic* tiene el peor ECE (0.1172), lo que indica que sus probabilidades estan sobrecalibradas para predicciones altas. *threat* tiene el mejor ECE (0.0023) porque sus probabilidades estan concentradas cerca de 0 y la calibracion es trivialmente buena en ese rango.
+
+#figure(
+  image("imgs/38_threshold_analysis.png", width: 100%),
+  caption: [Metricas por umbral de decision. El umbral F2-optimo se marca con linea punteada roja.],
+) <threshold>
+
+Los umbrales F2-optimos varian por etiqueta: toxic 0.52, obscene 0.70, insult 0.65, identity_hate 0.71, severe_toxic 0.49, threat 0.10. El umbral de 0.10 para *threat* refleja que la clase es tan rara (0.30%) que se necesita un umbral muy bajo para alcanzar recall aceptable (52%). En produccion, el umbral debe ajustarse segun el costo relativo de falsos negativos (comentario amenazante no detectado) vs falsos positivos (moderacion excesiva).
+
+// ============================================================
+// 14. CONCLUSIONES ACTUALIZADAS
 // ============================================================
 = Conclusiones
 
@@ -407,9 +472,11 @@ Los deltas de AUC respecto al baseline de solo texto son notablemente grandes. L
 
 *Sentimiento y categorias tematicas.* VADER (valencia) y EMPATH (tema) capturan dimensiones parcialmente independientes que mejoran significativamente el baseline. La combinacion texto+VADER+EMPATH alcanza AUC de 0.84 a 0.94, un salto de +0.17 a +0.31 sobre solo texto. VADER sent_neg es el feature individual mas potente para la mayoria de etiquetas, pero EMPATH kill supera a VADER en threat. Los 3,075 comentarios toxicos con sentimiento positivo ilustran la limitacion de los modelos lexicos. La combinacion completa (texto + VADER + EMPATH) sistematicamente supera a cualquier subconjunto, confirmando que las tres dimensiones son complementarias.
 
+*Modelo productivo: Classifier Chain LightGBM.* La cadena de clasificadores con orden toxic → obscene → insult → severe_toxic → identity_hate → threat alcanza AUC-ROC macro de 0.9630 con intervalos de confianza bootstrap al 95% que no incluyen 0.5 en ninguna etiqueta. Las features de la cadena (predicciones de etiquetas anteriores) son las mas importantes para etiquetas posteriores, confirmando que la estructura de dependencia entre etiquetas es la senal dominante para sub-etiquetas. Los umbrales F2-optimos varian de 0.10 (threat) a 0.71 (identity_hate), reflejando el desbalance extremo. LogisticRegression con penalty L1 alcanza AUC marginalmente superiores en 4 de 6 etiquetas, pero las diferencias estan dentro de los IC 95% de LightGBM y LR no modela la estructura de cadena ni ofrece feature importance comparable.
+
 *Supuestos estadisticos verificados.* Las pruebas de normalidad rechazan la normalidad para todos los features (p < 0.001), lo que justifica el uso de Mann-Whitney U en lugar de t-test. Las correlaciones Pearson entre etiquetas son validas porque las variables son binarias y el tamano de muestra (N = 159,571) garantiza convergencia asintotica. Las pruebas de Chi-cuadrada son validas porque todas las celdas de las tablas de contingencia tienen frecuencias esperadas mayores a 5. El VIF maximo (2.69) indica que no hay multicolinealidad problematica entre etiquetas. Las correlaciones Spearman entre features de VADER y EMPATH son debiles (r < 0.23), confirmando que capturan dimensiones independientes.
 
-*Limitaciones.* Este analisis usa features lexicos (texto simple, VADER, EMPATH) que no capturan contexto ni intencion. Las conclusiones sobre poder predictivo son un limite inferior del rendimiento alcanzable. El dataset proviene de paginas de discusion de Wikipedia en ingles, por lo que los patrones detectados no generalizan necesariamente a otras plataformas, idiomas o contextos culturales. La seleccion de categorias EMPATH basada en correlacion con any_toxic introduce sesgo de seleccion. El modelado de EMPATH uso una submuestra de 10,000 con 2 semillas, lo que produce intervalos mas amplios que los analisis anteriores.
+*Limitaciones.* Este analisis usa features lexicos (texto simple, VADER, EMPATH) y TF-IDF, que no capturan contexto ni intencion profunda. Las conclusiones sobre poder predictivo son un limite inferior del rendimiento alcanzable con modelos contextuales (BERT, etc.). El dataset proviene de paginas de discusion de Wikipedia en ingles, por lo que los patrones detectados no generalizan necesariamente a otras plataformas, idiomas o contextos culturales. La seleccion de categorias EMPATH basada en correlacion con any_toxic introduce sesgo de seleccion. El umbral F2-optimo para threat (0.10) prioriza recall al extremo y generaria muchos falsos positivos en produccion. La calibracion de toxic (ECE=0.12) indica que las probabilidades no son directamente interpretables sin correccion.
 
 #v(1em)
 #text(size: 9pt, fill: luma(100))[

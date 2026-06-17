@@ -35,7 +35,7 @@ import seaborn as sns
 from scipy.sparse import issparse
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import roc_auc_score, f1_score
+from sklearn.metrics import roc_auc_score, f1_score, precision_score, recall_score
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -359,8 +359,6 @@ def _plot_feature_importance(imp_df, img_dir):
 
 
 def _plot_calibration(y_test, y_prob, img_dir):
-    from sklearn.calibration import calibration_curve
-
     fig, axes = plt.subplots(2, 3, figsize=(18, 10))
     axes = axes.flatten()
 
@@ -389,6 +387,7 @@ def _plot_calibration(y_test, y_prob, img_dir):
 
 def _plot_roc_curves(y_test, y_prob, img_dir):
     from sklearn.metrics import roc_curve
+    from sklearn.calibration import calibration_curve
 
     fig, axes = plt.subplots(2, 3, figsize=(18, 10))
     axes = axes.flatten()

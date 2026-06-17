@@ -1,0 +1,247 @@
+{
+  "eval_results": {
+    "toxic": {
+      "auc_roc": {
+        "point": 0.9598,
+        "ci_lower": 0.9568,
+        "ci_upper": 0.9631,
+        "std": 0.0018
+      },
+      "avg_precision": 0.8306,
+      "ece": 0.1172,
+      "brier": 0.0619,
+      "f2_threshold": 0.52,
+      "precision_at_f2": 0.5703,
+      "recall_at_f2": 0.8414,
+      "f1_at_f2": 0.6798,
+      "f2_at_f2": 0.7684,
+      "f1_bootstrap": {
+        "point": 0.6794,
+        "ci_lower": 0.6655,
+        "ci_upper": 0.6912,
+        "std": 0.0062
+      }
+    },
+    "severe_toxic": {
+      "auc_roc": {
+        "point": 0.9819,
+        "ci_lower": 0.9738,
+        "ci_upper": 0.9876,
+        "std": 0.0035
+      },
+      "avg_precision": 0.4472,
+      "ece": 0.0178,
+      "brier": 0.015,
+      "f2_threshold": 0.49,
+      "precision_at_f2": 0.2932,
+      "recall_at_f2": 0.7672,
+      "f1_at_f2": 0.4243,
+      "f2_at_f2": 0.5798,
+      "f1_bootstrap": {
+        "point": 0.4252,
+        "ci_lower": 0.3913,
+        "ci_upper": 0.4627,
+        "std": 0.0193
+      }
+    },
+    "obscene": {
+      "auc_roc": {
+        "point": 0.9799,
+        "ci_lower": 0.9765,
+        "ci_upper": 0.9828,
+        "std": 0.0016
+      },
+      "avg_precision": 0.8607,
+      "ece": 0.0546,
+      "brier": 0.0328,
+      "f2_threshold": 0.7,
+      "precision_at_f2": 0.6723,
+      "recall_at_f2": 0.8604,
+      "f1_at_f2": 0.7548,
+      "f2_at_f2": 0.8148,
+      "f1_bootstrap": {
+        "point": 0.7548,
+        "ci_lower": 0.7414,
+        "ci_upper": 0.769,
+        "std": 0.0073
+      }
+    },
+    "threat": {
+      "auc_roc": {
+        "point": 0.9549,
+        "ci_lower": 0.9309,
+        "ci_upper": 0.9743,
+        "std": 0.0127
+      },
+      "avg_precision": 0.3779,
+      "ece": 0.0023,
+      "brier": 0.0028,
+      "f2_threshold": 0.1,
+      "precision_at_f2": 0.3248,
+      "recall_at_f2": 0.5204,
+      "f1_at_f2": 0.4,
+      "f2_at_f2": 0.4645,
+      "f1_bootstrap": {
+        "point": 0.4011,
+        "ci_lower": 0.3291,
+        "ci_upper": 0.4693,
+        "std": 0.0371
+      }
+    },
+    "insult": {
+      "auc_roc": {
+        "point": 0.971,
+        "ci_lower": 0.9669,
+        "ci_upper": 0.9747,
+        "std": 0.002
+      },
+      "avg_precision": 0.7668,
+      "ece": 0.0534,
+      "brier": 0.0383,
+      "f2_threshold": 0.65,
+      "precision_at_f2": 0.5628,
+      "recall_at_f2": 0.8325,
+      "f1_at_f2": 0.6716,
+      "f2_at_f2": 0.7597,
+      "f1_bootstrap": {
+        "point": 0.6714,
+        "ci_lower": 0.655,
+        "ci_upper": 0.6878,
+        "std": 0.0087
+      }
+    },
+    "identity_hate": {
+      "auc_roc": {
+        "point": 0.9308,
+        "ci_lower": 0.9127,
+        "ci_upper": 0.9463,
+        "std": 0.009
+      },
+      "avg_precision": 0.3432,
+      "ece": 0.0277,
+      "brier": 0.0183,
+      "f2_threshold": 0.71,
+      "precision_at_f2": 0.2654,
+      "recall_at_f2": 0.4826,
+      "f1_at_f2": 0.3425,
+      "f2_at_f2": 0.4147,
+      "f1_bootstrap": {
+        "point": 0.3408,
+        "ci_lower": 0.2896,
+        "ci_upper": 0.3906,
+        "std": 0.024
+      }
+    }
+  },
+  "macro": {
+    "auc_roc": 0.963,
+    "f1": 0.5455,
+    "f2": 0.6336,
+    "ece": 0.0455
+  },
+  "thresholds": {
+    "toxic": 0.52,
+    "severe_toxic": 0.49,
+    "obscene": 0.7,
+    "threat": 0.1,
+    "insult": 0.65,
+    "identity_hate": 0.71
+  },
+  "baseline_lr": {
+    "toxic": {
+      "auc": 0.962000398157848
+    },
+    "severe_toxic": {
+      "auc": 0.9867014484936807
+    },
+    "obscene": {
+      "auc": 0.9766518068262108
+    },
+    "threat": {
+      "auc": 0.9800549443148413
+    },
+    "insult": {
+      "auc": 0.9701280981758916
+    },
+    "identity_hate": {
+      "auc": 0.9560154625545073
+    }
+  },
+  "comparison": [
+    {
+      "etiqueta": "toxic",
+      "LR_AUC": 0.962,
+      "LGBM_AUC": 0.9598,
+      "LGBM_IC95": "[0.9568, 0.9631]",
+      "delta_AUC": "-0.0022",
+      "LGBM_supera_LR": "No"
+    },
+    {
+      "etiqueta": "severe_toxic",
+      "LR_AUC": 0.9867,
+      "LGBM_AUC": 0.9819,
+      "LGBM_IC95": "[0.9738, 0.9876]",
+      "delta_AUC": "-0.0048",
+      "LGBM_supera_LR": "No"
+    },
+    {
+      "etiqueta": "obscene",
+      "LR_AUC": 0.9767,
+      "LGBM_AUC": 0.9799,
+      "LGBM_IC95": "[0.9765, 0.9828]",
+      "delta_AUC": "+0.0032",
+      "LGBM_supera_LR": "No"
+    },
+    {
+      "etiqueta": "threat",
+      "LR_AUC": 0.9801,
+      "LGBM_AUC": 0.9549,
+      "LGBM_IC95": "[0.9309, 0.9743]",
+      "delta_AUC": "-0.0252",
+      "LGBM_supera_LR": "No"
+    },
+    {
+      "etiqueta": "insult",
+      "LR_AUC": 0.9701,
+      "LGBM_AUC": 0.971,
+      "LGBM_IC95": "[0.9669, 0.9747]",
+      "delta_AUC": "+0.0009",
+      "LGBM_supera_LR": "No"
+    },
+    {
+      "etiqueta": "identity_hate",
+      "LR_AUC": 0.956,
+      "LGBM_AUC": 0.9308,
+      "LGBM_IC95": "[0.9127, 0.9463]",
+      "delta_AUC": "-0.0252",
+      "LGBM_supera_LR": "No"
+    }
+  ],
+  "feature_engineering": {
+    "n_tfidf_features": 5000,
+    "n_dense_features": 10,
+    "dense_feature_names": [
+      "text_len",
+      "word_count",
+      "caps_ratio",
+      "exclaim_ratio",
+      "question_ratio",
+      "unique_word_ratio",
+      "sent_neg",
+      "sent_neu",
+      "sent_pos",
+      "sent_compound"
+    ],
+    "tfidf_ngram_range": [
+      1,
+      2
+    ],
+    "tfidf_max_features": 5000
+  },
+  "timing": {
+    "feature_engineering_s": 41.4,
+    "baseline_lr_s": 65.8,
+    "lightgbm_s": 888.5,
+    "total_s": 1022.0
+  }
+}
