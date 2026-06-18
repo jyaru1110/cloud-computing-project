@@ -42,7 +42,14 @@ Sirve la API de prediccion. Lee el modelo de GCS al arrancar. Expone `/health`, 
 
 ### Cloud Scheduler + Pub/Sub + Cloud Function
 
-Documentado como paso futuro para reentrenamiento automatico. No se implemento. Actualmente el reentrenamiento es manual via REST API.
+Implementa el reentrenamiento automatico. Cloud Scheduler publica un mensaje cada lunes a las 2 AM (CDMX) en el topico `retrain-trigger` de Pub/Sub. La Cloud Function `trigger-retraining` recibe el evento y lanza un Vertex AI Custom Training Job via el SDK de aiplatform. El job sobreescribe los artefactos en GCS. La siguiente instancia de Cloud Run carga el modelo actualizado.
+
+- **Topico Pub/Sub:** `projects/mlops-toxic-classifier/topics/retrain-trigger`
+- **Cloud Function:** `trigger-retraining` (gen 2, Python 312, 512 MiB)
+- **Scheduler:** `retrain-monday-2am`, cron `0 2 * * 1`, timezone `America/Mexico_City`
+- **Training job:** `n1-highmem-4`, misma imagen Docker que Cloud Run
+
+Verificado end-to-end: Scheduler -> Pub/Sub -> Cloud Function -> Custom Job -> GCS -> Cloud Run.
 
 ### Secret Manager
 
@@ -76,5 +83,5 @@ Almacena la API key de Synthetic (para nomic-embed-text-v1.5). El Custom Trainin
 - **Despliegue condicional:** si la metrica pasa, los artefactos ya estan en GCS. Cloud Run los carga al arrancar.
 - **Serving:** Cloud Run con GCS-first model loading.
 - **Monitoreo:** Cloud Logging, Cloud Monitoring, drift detection.
-- **Reentrenamiento:** manual via REST API. Automatizado en documentacion (Cloud Scheduler semanal via Pub/Sub + Cloud Function).
+- **Reentrenamiento:** automatico via Cloud Scheduler (lunes 2 AM CDMX) -> Pub/Sub -> Cloud Function -> Custom Training Job. Tambien se puede lanzar manualmente publicando un mensaje al topico o via REST API.
 - **Rollback:** versiones anteriores de artefactos en GCS, desplegar revision anterior en Cloud Run.
