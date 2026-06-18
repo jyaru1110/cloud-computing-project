@@ -1,82 +1,5 @@
 # Arquitectura
 
-## Diagrama
-
-El diagrama de arquitectura se genera desde ASCII art usando **aasvg** (Typst Universe / cargo install aasvg-cli). El archivo fuente es `docs/architecture_ascii.txt` y el SVG resultante se genera con:
-
-```bash
-cargo install aasvg-cli
-aasvg docs/architecture_ascii.txt -o docs/architecture_diagram.svg
-```
-
-El SVG usa CSS variables para soportar light y dark mode automaticamente via `prefers-color-scheme`.
-
-![Arquitectura completa del sistema MLOps en GCP](architecture_diagram.png)
-
-El diagrama incluye tres flujos principales (CI/CD, serving, reentrenamiento) y 13 componentes GCP.
-
-Tambien hay una version alternativa en Typst con Fletcher en `docs/architecture_diagram.typ`:
-
-```bash
-typst compile --format png --ppi 200 docs/architecture_diagram.typ docs/architecture_diagram.png
-```
-
-## Arquitectura (texto)
-                     └──────────────────────┬─────────────────────┘
-                                            │ push
-                                            ▼
-                     ┌──────────────────────────────────────────────┐
-                     │            Cloud Build (CI/CD)                │
-                     │                                              │
-                     │  1. Build imagen Docker                      │
-                     │  2. Push a Artifact Registry                  │
-                     │  3. Compile pipeline KFP (opcional)          │
-                     └──────────────────────┬─────────────────────┘
-                                            │
-               ┌────────────────────────────┼────────────────────────────┐
-               │                            │                            │
-               ▼                            ▼                            ▼
-    ┌──────────────────┐     ┌──────────────────────┐     ┌─────────────────────┐
-    │ Artifact Registry │     │   Vertex AI Custom    │     │     Cloud Run       │
-    │                  │     │   Training Job        │     │   (Serving API)     │
-    │ toxic-classifier │     │                      │     │                     │
-    │ :latest          │     │  python entrypoint.py│     │  python entrypoint.py│
-    │                  │     │  --mode train        │     │  --mode serve       │
-    └────────┬─────────┘     └──────────┬───────────┘     └──────────┬──────────┘
-             │                          │                             │
-             │  misma imagen            │ escribe                     │ lee
-             │                          ▼                             ▼
-             │            ┌──────────────────────────────────────────────────┐
-             │            │          Cloud Storage (GCS)                     │
-             │            │    gs://mlops-toxic-classifier-ml/               │
-             │            │                                                 │
-             │            │  train.csv          datos de entrenamiento     │
-             │            │  model/             artefactos del modelo       │
-             │            │  cache/             embeddings cacheados (npz)  │
-             │            │  pipeline_templates/ pipeline KFP compilado     │
-             │            │  pipeline_root/     artefactos de ejecucion     │
-             │            └──────────────────────────────────────────────────┘
-             │                          ▲                             │
-             │                          │ trigger                     │
-             │            ┌────────────┴───────────┐                 │
-             │            │  Cloud Scheduler        │                 │
-             │            │  (cron semanal)         │                 │
-             │            └────────────┬───────────┘                 │
-             │                         │ Pub/Sub                      │
-             │                         ▼                              │
-             │            ┌───────────────────────┐                  │
-             │            │  Cloud Function        │                  │
-             │            │  trigger-retraining    │──────────────────┘
-             │            │  lanza Custom Job      │
-             │            └───────────────────────┘     modelo actualizado
-             │                                          via cold start
-             ▼
-    ┌──────────────────┐
-    │ Secret Manager   │
-    │ synthetic-api-key│
-    └──────────────────┘
-```
-
 ## Principio de diseno: GCS como contrato
 
 La imagen Docker es generica. No contiene el modelo ni los datos. Esto desacopla entrenamiento de serving:
@@ -87,11 +10,11 @@ La imagen Docker es generica. No contiene el modelo ni los datos. Esto desacopla
 
 La misma imagen sirve para ambos modos (`--mode train` y `--mode serve`) via el entrypoint `src/serving/train.py`.
 
-## Servicios GCP
+## Componentes GCP
 
 ### Cloud Build
 
-Ejecuta el CI/CD. Construye la imagen Docker y la sube a Artifact Registry. Opcionalmente compila el pipeline KFP y lo sube a GCS.
+Ejecuta el CI/CD. Construye la imagen Docker y la sube a Artifact Registry. En este proyecto los builds se ejecutaron con `gcloud builds submit --tag ...` directamente, sin usar un archivo `cloudbuild.yaml`.
 
 ### Cloud Storage
 
@@ -102,7 +25,7 @@ Almacena todos los artefactos que no pertenecen al codigo fuente:
 | `train.csv` | Dataset de entrenamiento (159,571 filas, 65 MB) |
 | `model/*.joblib` | 6 LinearSVC calibrados + TF-IDF vectorizador |
 | `model/metadata.json` | Umbrales F2-optimal, metricas, configuracion |
-| `cache/nomic_embeddings_full.npz` | Embeddings cacheados (272 MB) para evitar recomputar |
+| `cache/nomic_embeddings_full.npz` | Embeddings cacheados (272 MB) |
 | `pipeline_templates/mlops_pipeline.json` | Pipeline KFP compilado |
 
 ### Artifact Registry
@@ -111,7 +34,7 @@ Almacena la imagen Docker `toxic-classifier:latest`. La imagen contiene Python 3
 
 ### Vertex AI Custom Training Job
 
-Ejecuta el entrenamiento en una VM efimera. Lee datos y embeddings de GCS, entrena 6 LinearSVC calibrados, sube artefactos a GCS. Tipo de maquina: `n1-highmem-4` (26 GB RAM, requerido porque el TF-IDF con 194k features + embeddings para 159k filas supera 15 GB en fit).
+Ejecuta el entrenamiento en una VM efimera. Lee datos y embeddings de GCS, entrena 6 LinearSVC calibrados, sube artefactos a GCS. Tipo de maquina: `n1-highmem-4` (26 GB RAM). El primer intento con `n1-standard-4` (15 GB) fallo por OOM.
 
 ### Cloud Run
 
@@ -119,7 +42,7 @@ Sirve la API de prediccion. Lee el modelo de GCS al arrancar. Expone `/health`, 
 
 ### Cloud Scheduler + Pub/Sub + Cloud Function
 
-Automatiza el reentrenamiento periodico. Cloud Scheduler publica un mensaje en Pub/Sub, la Cloud Function recibe el evento y lanza un Vertex AI Custom Training Job con los parametros configurados.
+Documentado como paso futuro para reentrenamiento automatico. No se implemento. Actualmente el reentrenamiento es manual via REST API.
 
 ### Secret Manager
 
@@ -131,7 +54,7 @@ Almacena la API key de Synthetic (para nomic-embed-text-v1.5). El Custom Trainin
 2. El Custom Training Job lee el dataset y el cache de embeddings desde GCS.
 3. Si no hay cache de embeddings, computa via Synthetic API y sube el cache a GCS.
 4. Entrena 6 LinearSVC + CalibratedClassifierCV sobre TF-IDF + embeddings.
-5. Sube los artefactos (joblib + metadata.json) a GCS.
+5. Sube los 7 joblib + metadata.json a GCS.
 6. Cloud Run lee los artefactos de GCS al arrancar y carga el modelo en memoria.
 7. Cada request a `/predict` limpia el texto, computa TF-IDF localmente, obtiene embeddings via API, concatena y predice.
 
@@ -150,8 +73,8 @@ Almacena la API key de Synthetic (para nomic-embed-text-v1.5). El Custom Trainin
 - **Feature engineering:** TF-IDF char_wb (2,5) + nomic-embed-text-v1.5 (768d).
 - **Entrenamiento:** Vertex AI Custom Training Job.
 - **Evaluacion:** AUC por etiqueta, AUC macro, gate de despliegue (>= 0.95).
-- **Despliegue condicional:** si la metrica pasa, el modelo se despliega. Si no, se guarda el reporte y se detiene.
+- **Despliegue condicional:** si la metrica pasa, los artefactos ya estan en GCS. Cloud Run los carga al arrancar.
 - **Serving:** Cloud Run con GCS-first model loading.
 - **Monitoreo:** Cloud Logging, Cloud Monitoring, drift detection.
-- **Reentrenamiento:** Cloud Scheduler semanal via Pub/Sub + Cloud Function.
-- **Rollback:** versiones anteriores en GCS, desplegar revision anterior en Cloud Run.
+- **Reentrenamiento:** manual via REST API. Automatizado en documentacion (Cloud Scheduler semanal via Pub/Sub + Cloud Function).
+- **Rollback:** versiones anteriores de artefactos en GCS, desplegar revision anterior en Cloud Run.
