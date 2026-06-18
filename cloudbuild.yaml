@@ -33,6 +33,9 @@ steps:
         '--allow-unauthenticated',
       ]
 
+options:
+  logging: CLOUD_LOGGING_ONLY
+
 images:
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/mlops-containers/toxic-classifier:$COMMIT_SHA'
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/mlops-containers/toxic-classifier:latest'
