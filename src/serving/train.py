@@ -137,14 +137,53 @@ def train_mode(args):
     X_tfidf = tfidf.fit_transform(df["clean_text"])
     print(f"TF-IDF: {X_tfidf.shape[1]} features")
 
-    # Embeddings
-    if api_key:
-        print("\nComputing nomic-embed features...")
-        emb = compute_nomic_embeddings(df["comment_text"].fillna("").tolist(), api_key)
+    # Embeddings: try GCS cache first, then API, then skip
+    emb = None
+    cache_gcs_uri = args.gcs_embeddings_cache_uri
+    if cache_gcs_uri:
+        print(f"\nChecking GCS embeddings cache at {cache_gcs_uri}...")
+        cache_parts = cache_gcs_uri.replace("gs://", "").split("/", 1)
+        cache_bucket_name = cache_parts[0]
+        cache_blob_path = cache_parts[1]
+        cache_bucket = gcs_client.bucket(cache_bucket_name)
+        cache_blob = cache_bucket.blob(cache_blob_path)
+        if cache_blob.exists():
+            print(f"  Cache hit! Downloading {cache_blob_path}...")
+            tmp_npz = "/tmp/embeddings_cache.npz"
+            cache_blob.download_to_filename(tmp_npz)
+            cached = np.load(tmp_npz, allow_pickle=True)
+            emb = cached["embeddings"] if "embeddings" in cached else cached[list(cached.keys())[0]]
+            print(f"  Loaded embeddings: {emb.shape}")
+            # Verify row count matches
+            cache_n_rows = int(cached["n_rows"]) if "n_rows" in cached else emb.shape[0]
+            if cache_n_rows != len(df):
+                print(f"  WARNING: Cache has {cache_n_rows} rows but data has {len(df)}. Recomputing.")
+                emb = None
+            elif "data_hash" in cached:
+                expected_hash = hex(hash(tuple(df["id"].tolist())) & 0xFFFFFFFF)[2:]
+                if str(cached["data_hash"]) != expected_hash:
+                    print(f"  WARNING: Data hash mismatch. Cache may be stale. Recomputing.")
+                    emb = None
+        else:
+            print("  Cache miss.")
+
+    if emb is None and api_key:
+        print("\nComputing nomic-embed features via API...")
+        texts = df["comment_text"].fillna("").tolist()
+        emb = compute_nomic_embeddings(texts, api_key)
         print(f"Embeddings: {emb.shape}")
-    else:
-        print("\nWARNING: No API key available, training without embeddings")
-        emb = None
+        # Upload to cache for future runs
+        if cache_gcs_uri:
+            print(f"  Uploading embeddings cache to {cache_gcs_uri}...")
+            tmp_npz = "/tmp/embeddings_cache.npz"
+            data_hash = hex(hash(tuple(df["id"].tolist())) & 0xFFFFFFFF)[2:]
+            np.savez_compressed(tmp_npz, embeddings=emb, data_hash=[data_hash], n_rows=[len(df)])
+            cache_bucket = gcs_client.bucket(cache_parts[0])
+            cache_blob = cache_bucket.blob(cache_parts[1])
+            cache_blob.upload_from_filename(tmp_npz)
+            print("  Cache uploaded.")
+    elif emb is None and not api_key:
+        print("\nWARNING: No API key and no embeddings cache. Training without embeddings.")
 
     # Concatenate features
     if emb is not None:
@@ -221,6 +260,8 @@ def main():
     parser.add_argument("--gcs-output-uri", default="")
     parser.add_argument("--model-dir", default=os.environ.get("AIP_MODEL_DIR", "/tmp/model"))
     parser.add_argument("--synthetic-api-key-secret", default="synthetic-api-key")
+    parser.add_argument("--gcs-embeddings-cache-uri", default=os.environ.get("GCS_EMBEDDINGS_CACHE_URI", ""),
+                        help="GCS URI for cached embeddings (npz). If exists, skip API calls.")
     args = parser.parse_args()
 
     if args.mode == "train":
